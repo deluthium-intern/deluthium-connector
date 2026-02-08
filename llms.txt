@@ -1,0 +1,118 @@
+# Deluthium
+
+> The Agent-Native Exchange. Unified RFQ liquidity infrastructure for autonomous AI agents, trading bots, and institutional market makers.
+
+Deluthium is a decentralized exchange built on the Request-for-Quote (RFQ) model, designed from day one for programmatic and autonomous agent access. Instead of managing order books, agents simply request a quote, get a guaranteed price, and execute -- making it the ideal trading venue for AI agents.
+
+## Core Documentation
+
+- [README](README.md): Project overview, quick start, package listing
+- [AGENTS.md](AGENTS.md): Comprehensive agent integration guide with full API reference, type definitions, code workflows, error handling, and decision trees
+- [SDK README](packages/sdk/README.md): Core SDK documentation (REST client, WebSocket client, signing, chain config)
+- [CCXT Adapter](packages/ccxt-adapter/README.md): Standard CCXT exchange interface (simplest integration path)
+- [Institutional Adapter](packages/institutional-adapter/README.md): FIX 4.4 gateway and OTC API for institutional market makers
+
+## Quick Start
+
+Install:
+```
+npm install @deluthium/sdk
+```
+
+Get a price quote (5 lines):
+```typescript
+import { DeluthiumRestClient, ChainId, toWei, fromWei } from '@deluthium/sdk';
+const client = new DeluthiumRestClient({ auth: 'your-jwt-token', chainId: ChainId.BSC });
+const quote = await client.getIndicativeQuote({
+  src_chain_id: 56, dst_chain_id: 56,
+  token_in: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+  token_out: '0x55d398326f99059fF775485246999027B3197955',
+  amount_in: toWei('1.0', 18),
+});
+console.log(`1 BNB = ${fromWei(quote.amount_out, 18)} USDT`);
+```
+
+Or use CCXT (3 lines):
+```typescript
+import { DeluthiumExchange } from '@deluthium/ccxt-adapter';
+const exchange = new DeluthiumExchange({ apiKey: 'your-jwt-token', chainId: 56 });
+const ticker = await exchange.fetchTicker('WBNB/USDT');
+```
+
+## API Overview
+
+Base URL: https://rfq-api.deluthium.ai
+WebSocket: wss://ws.deluthium.ai
+Authentication: JWT Bearer token (Authorization: Bearer <token>)
+
+REST Endpoints:
+- GET  /api/v1/listing-pairs?chain_id=56     -- List trading pairs
+- GET  /api/v1/listing-tokens?chain_id=56    -- List supported tokens
+- POST /api/v1/indicative-quote              -- Non-binding price quote
+- POST /v1/quote/firm                        -- Binding quote with on-chain calldata
+- GET  /v1/market/pair                       -- OHLCV market data
+- GET  /v1/market/klines                     -- Candlestick data
+
+WebSocket Channels:
+- depth:{pair}    -- Real-time bid/ask depth updates
+- rfq_request     -- Incoming RFQ requests (for market makers)
+- rfq_response    -- RFQ response (market makers send)
+- heartbeat       -- Keep-alive (send every 30s)
+
+## Packages
+
+- @deluthium/sdk                   -- Core SDK (REST, WebSocket, signing, chain config)
+- @deluthium/ccxt-adapter          -- CCXT exchange interface (simplest path)
+- deluthium-hummingbot (pip)       -- Hummingbot connector
+- @deluthium/0x-adapter            -- 0x Protocol v4 RFQ adapter
+- @deluthium/1inch-adapter         -- 1inch Limit Order adapter + Oracle
+- @deluthium/uniswapx-adapter      -- UniswapX Dutch auction filler
+- @deluthium/hashflow-adapter      -- Hashflow WebSocket RFQ bridge
+- @deluthium/paraswap-adapter      -- Paraswap aggregator liquidity source
+- @deluthium/dydx-adapter          -- dYdX v4 order book bridge
+- @deluthium/binance-dex-adapter   -- PancakeSwap / BNB Chain split-router
+- @deluthium/institutional-adapter -- FIX 4.4 gateway + OTC API
+- @deluthium/cli                   -- Interactive setup CLI
+
+## Supported Chains
+
+- BNB Smart Chain (56)  -- Live, RFQ Manager: 0x94020Af3571f253754e5566710A89666d90Df615
+- Base (8453)           -- Live, RFQ Manager: 0x7648CE928efa92372E2bb34086421a8a1702bD36
+- Ethereum (1)          -- Coming soon
+- Arbitrum One (42161)  -- Coming soon
+- zkSync Era (324)      -- Coming soon
+- Polygon (137)         -- Coming soon
+
+## Key Concepts
+
+- RFQ (Request for Quote): Agent requests a price, gets a guaranteed quote, then executes on-chain. No order book management needed.
+- Indicative Quote: Non-binding price check for discovery. Use before committing.
+- Firm Quote: Binding quote with calldata. Submit the calldata as a blockchain transaction to execute.
+- EIP-712 Signing: Structured typed data signing for on-chain quote verification.
+- Wei: All token amounts are in wei (smallest unit). Use toWei/fromWei utilities.
+
+## Error Codes
+
+- VALIDATION_ERROR     -- Invalid input parameters
+- API_ERROR            -- HTTP or business logic error
+- AUTH_ERROR           -- Authentication failed (401/403)
+- RATE_LIMIT_ERROR     -- Too many requests (429)
+- TIMEOUT_ERROR        -- Request timed out
+- QUOTE_EXPIRED_ERROR  -- Quote past deadline
+- WEBSOCKET_ERROR      -- WebSocket connection failure
+- SIGNING_ERROR        -- EIP-712 signing failed
+- CHAIN_ERROR          -- Chain not supported
+
+## Examples
+
+- examples/ccxt-basic           -- CCXT exchange interface usage
+- examples/custom-mm            -- Full SDK: REST, WebSocket, signing
+- examples/0x-rfq-maker         -- 0x RFQ maker
+- examples/1inch-limit-order    -- 1inch limit orders
+- examples/uniswapx-filler      -- UniswapX order filling
+- examples/hashflow-mm          -- Hashflow market making
+- examples/paraswap-pool        -- Paraswap liquidity source
+- examples/dydx-arbitrage       -- Cross-venue arbitrage
+- examples/pancakeswap-router   -- Split-route PancakeSwap
+- examples/institutional-fix    -- FIX protocol quickstart
+- examples/hummingbot-strategy  -- Hummingbot strategy
