@@ -52,7 +52,7 @@ class DeluthiumOrderBook(OrderBook):
     ) -> OrderBookMessage:
         """Create a full-snapshot ``OrderBookMessage`` from an exchange payload."""
         if metadata:
-            msg.update(metadata)
+            msg = {**msg, **metadata}  # MED-15: Don't mutate the caller's dict
 
         content = {
             "trading_pair": msg.get("trading_pair", ""),
@@ -79,7 +79,7 @@ class DeluthiumOrderBook(OrderBook):
     ) -> OrderBookMessage:
         """Create a diff (incremental) ``OrderBookMessage``."""
         if metadata:
-            msg.update(metadata)
+            msg = {**msg, **metadata}  # MED-15: Don't mutate the caller's dict
 
         content = {
             "trading_pair": msg.get("trading_pair", ""),
@@ -105,7 +105,7 @@ class DeluthiumOrderBook(OrderBook):
     ) -> OrderBookMessage:
         """Create a trade ``OrderBookMessage``."""
         if metadata:
-            msg.update(metadata)
+            msg = {**msg, **metadata}  # MED-15: Don't mutate the caller's dict
 
         content = {
             "trading_pair": msg.get("trading_pair", ""),

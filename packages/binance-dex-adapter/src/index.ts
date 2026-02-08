@@ -238,7 +238,11 @@ export class BinanceDexAdapter {
 
     const intervalMs = this.config.priceRefreshIntervalMs ?? 3_000;
 
+    // Guard against concurrent execution (MED-10)
+    let isRefreshing = false;
     this.refreshInterval = setInterval(async () => {
+      if (isRefreshing) return; // Skip if previous tick is still running
+      isRefreshing = true;
       try {
         const comparison = await this.priceComparatorInstance!.compare(
           srcToken, destToken, srcAmount,
@@ -247,6 +251,8 @@ export class BinanceDexAdapter {
         this.emit('comparison:ready', comparison);
       } catch (err) {
         this.emit('price:error', err);
+      } finally {
+        isRefreshing = false;
       }
     }, intervalMs);
   }

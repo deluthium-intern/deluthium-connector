@@ -474,9 +474,10 @@ export function parseFIXTimestamp(timestamp: string): Date {
  * Generate a unique FIX ID (for QuoteID, ExecID, etc.).
  */
 export function generateFIXId(prefix: string = 'DLT'): string {
+  // Use crypto.randomUUID() for cryptographically secure IDs (MED-06)
+  const uuid = crypto.randomUUID().replace(/-/g, '').substring(0, 12);
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `${prefix}-${timestamp}-${random}`;
+  return `${prefix}-${timestamp}-${uuid}`;
 }
 
 // ============================================================================

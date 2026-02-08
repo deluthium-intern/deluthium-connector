@@ -187,7 +187,13 @@ export class DeluthiumExchange extends ExchangeBase {
   }
 
   getTokenDecimals(tokenAddress: string): number {
-    return this.tokenDecimalsCache[tokenAddress] ?? 18;
+    const decimals = this.tokenDecimalsCache[tokenAddress];
+    if (decimals === undefined) {
+      throw new Error(
+        `Token decimals unknown for ${tokenAddress}. Call loadMarkets() first to populate the decimals cache.`,
+      );
+    }
+    return decimals;
   }
 
   // --------------------------------------------------------------------------
@@ -500,10 +506,33 @@ export class DeluthiumExchange extends ExchangeBase {
   private parseOrder(order: Dict, market?: any, side?: string): any {
     const quoteId = String(order['quote_id'] ?? '');
     const symbol = market?.symbol;
-    const amountIn = order['amount_in'] != null ? String(order['amount_in']) : undefined;
-    const amountOut = order['amount_out'] != null ? String(order['amount_out']) : undefined;
+    const amountInWei = order['amount_in'] != null ? String(order['amount_in']) : undefined;
+    const amountOutWei = order['amount_out'] != null ? String(order['amount_out']) : undefined;
     const deadline = order['deadline'] as number | undefined;
     const deadlineTimestamp = deadline !== undefined ? deadline * 1000 : undefined;
+
+    // Convert wei amounts to human-readable for CCXT convention (HIGH-05)
+    let amount: number | undefined;
+    let cost: number | undefined;
+    if (amountInWei !== undefined && market) {
+      const tokenIn = side === 'buy' ? market.quoteId : market.baseId;
+      try {
+        const decimals = this.getTokenDecimals(tokenIn as string);
+        amount = parseFloat(this.fromWei(amountInWei, decimals));
+      } catch {
+        // Fallback if decimals not cached
+        amount = parseFloat(amountInWei);
+      }
+    }
+    if (amountOutWei !== undefined && market) {
+      const tokenOut = side === 'buy' ? market.baseId : market.quoteId;
+      try {
+        const decimals = this.getTokenDecimals(tokenOut as string);
+        cost = parseFloat(this.fromWei(amountOutWei, decimals));
+      } catch {
+        cost = parseFloat(amountOutWei);
+      }
+    }
 
     return {
       id: quoteId,
@@ -524,10 +553,10 @@ export class DeluthiumExchange extends ExchangeBase {
       takeProfitPrice: undefined,
       stopLossPrice: undefined,
       average: undefined,
-      amount: amountIn !== undefined ? parseFloat(amountIn) : undefined,
+      amount,
       filled: undefined,
       remaining: undefined,
-      cost: undefined,
+      cost,
       trades: undefined,
       fee: {
         cost: order['fee_amount'] !== undefined ? parseFloat(String(order['fee_amount'])) : undefined,
@@ -535,7 +564,7 @@ export class DeluthiumExchange extends ExchangeBase {
       },
       info: {
         ...order,
-        expected_output: amountOut,
+        expected_output: amountOutWei,
         deadline_timestamp: deadlineTimestamp,
       },
     };

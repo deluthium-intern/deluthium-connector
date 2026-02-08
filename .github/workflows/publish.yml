@@ -25,6 +25,8 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
       - name: Extract version from tag
         id: version
@@ -45,7 +47,7 @@ jobs:
         run: |
           for pkg in ccxt-adapter 0x-adapter 1inch-adapter uniswapx-adapter hashflow-adapter paraswap-adapter dydx-adapter binance-dex-adapter institutional-adapter cli; do
             echo "Publishing @deluthium/$pkg..."
-            pnpm --filter "@deluthium/$pkg" publish --access public --no-git-checks || echo "Skipped $pkg"
+            pnpm --filter "@deluthium/$pkg" publish --access public --no-git-checks
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

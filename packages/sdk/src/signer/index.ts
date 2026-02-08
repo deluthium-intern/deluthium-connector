@@ -159,14 +159,17 @@ export class PrivateKeySigner implements ISigner {
  * 3. Handle key rotation and caching
  */
 export class KmsSigner implements ISigner {
-  private readonly keyId: string;
+  private readonly _keyId: string;
   private readonly region: string;
   private cachedAddress?: string;
 
   constructor(keyId: string, region = 'us-east-1') {
-    this.keyId = keyId;
+    this._keyId = keyId;
     this.region = region;
   }
+
+  /** Returns the KMS key ID (for future implementation). */
+  get keyId(): string { return this._keyId; }
 
   async getAddress(): Promise<string> {
     if (this.cachedAddress) return this.cachedAddress;
@@ -175,7 +178,7 @@ export class KmsSigner implements ISigner {
     // const pubKey = await kmsClient.send(new GetPublicKeyCommand({ KeyId: this.keyId }));
     // this.cachedAddress = computeAddress(pubKey);
     throw new SigningError(
-      `KmsSigner not yet implemented (keyId: ${this.keyId}, region: ${this.region})`,
+      `KmsSigner not yet implemented (region: ${this.region})`,
     );
   }
 
@@ -205,18 +208,21 @@ export class KmsSigner implements ISigner {
 export class VaultSigner implements ISigner {
   private readonly vaultUrl: string;
   private readonly keyPath: string;
-  private readonly token: string;
+  private readonly _token: string;
 
   constructor(vaultUrl: string, keyPath: string, token: string) {
     this.vaultUrl = vaultUrl;
     this.keyPath = keyPath;
-    this.token = token;
+    this._token = token;
   }
+
+  /** Returns the Vault token (for future implementation). Token value is not exposed in logs. */
+  get token(): string { return this._token; }
 
   async getAddress(): Promise<string> {
     // TODO: Retrieve key from Vault and derive address
     throw new SigningError(
-      `VaultSigner not yet implemented (url: ${this.vaultUrl}, path: ${this.keyPath}, token: ${this.token.slice(0, 4)}...)`,
+      `VaultSigner not yet implemented (url: ${this.vaultUrl}, path: ${this.keyPath})`,
     );
   }
 

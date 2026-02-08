@@ -28,7 +28,30 @@ export function toWei(amount: string | number, decimals = 18): string {
     throw new ValidationError(`Invalid decimals: ${decimals}`, 'decimals');
   }
 
-  const str = typeof amount === 'number' ? amount.toString() : amount;
+  // Handle number inputs: convert to fixed-point string to avoid scientific notation (HIGH-08)
+  let str: string;
+  if (typeof amount === 'number') {
+    if (!Number.isFinite(amount)) {
+      throw new ValidationError(`Invalid amount: ${amount}`, 'amount');
+    }
+    if (amount < 0) {
+      throw new ValidationError('Amount must be non-negative', 'amount');
+    }
+    // Use toFixed to avoid scientific notation for very small/large numbers
+    str = amount.toFixed(decimals > 20 ? 20 : decimals);
+  } else {
+    str = amount;
+  }
+
+  // Reject scientific notation in string inputs
+  if (/[eE]/.test(str)) {
+    throw new ValidationError(`Scientific notation not supported: ${str}. Use a decimal string.`, 'amount');
+  }
+
+  // Reject negative amounts
+  if (str.startsWith('-')) {
+    throw new ValidationError('Amount must be non-negative', 'amount');
+  }
 
   // Split on decimal point
   const parts = str.split('.');
@@ -127,7 +150,7 @@ export function isValidAddress(address: string): boolean {
  * Check if an address is the zero address (represents native token).
  */
 export function isNativeToken(address: string): boolean {
-  return address.toLowerCase() === ZERO_ADDRESS.toLowerCase();
+  return address.toLowerCase() === ZERO_ADDRESS; // ZERO_ADDRESS is already lowercase (L-01)
 }
 
 /**
@@ -150,6 +173,9 @@ export function resolveTokenAddress(address: string, chainId: number): Address {
  * @returns Unix timestamp (seconds)
  */
 export function calculateDeadline(expirySeconds: number): number {
+  if (expirySeconds <= 0) {
+    throw new ValidationError('expirySeconds must be positive', 'expirySeconds');
+  }
   return Math.floor(Date.now() / 1000) + expirySeconds;
 }
 
@@ -174,7 +200,7 @@ export function applySlippage(amountOut: string, slippagePercent: number): strin
     throw new ValidationError(`Invalid slippage: ${slippagePercent}%`, 'slippage');
   }
   const amount = BigInt(amountOut);
-  const bps = BigInt(Math.floor(slippagePercent * 100)); // Convert % to basis points
+  const bps = BigInt(Math.round(slippagePercent * 100)); // Convert % to basis points (HIGH-09: use round to avoid float precision loss)
   const minOutput = amount - (amount * bps) / 10000n;
   return minOutput.toString();
 }
@@ -195,16 +221,19 @@ export function keccak256Hash(data: string | Uint8Array): HexString {
 
 /**
  * Generate a random nonce for EIP-712 signing.
- * Uses 40-bit nonces (fits within uint256 with room for epoch/series).
+ * Uses 128-bit nonces for strong collision resistance (MED-03).
+ * Combined with a 64-bit timestamp prefix for ordering.
  */
 export function generateNonce(): bigint {
-  const bytes = new Uint8Array(5); // 40 bits
+  const bytes = new Uint8Array(16); // 128 bits
   crypto.getRandomValues(bytes);
   let nonce = 0n;
   for (const b of bytes) {
     nonce = (nonce << 8n) | BigInt(b);
   }
-  return nonce;
+  // Prefix with timestamp (ms) for monotonicity hints
+  const timestamp = BigInt(Date.now());
+  return (timestamp << 128n) | nonce;
 }
 
 // --- Misc ---
@@ -223,10 +252,35 @@ export function sleep(ms: number): Promise<void> {
  * @param maxRetries - Maximum number of retries
  * @param baseDelayMs - Initial delay between retries (doubles each time)
  */
+/**
+ * Check if an error is retryable (HIGH-01).
+ * Non-retryable: auth errors, validation errors, client errors (4xx except 429/408).
+ */
+export function isRetryableError(err: unknown): boolean {
+  if (err && typeof err === 'object') {
+    // Check for known non-retryable SDK error types
+    const name = (err as { name?: string }).name;
+    if (name === 'AuthenticationError' || name === 'ValidationError' || name === 'SigningError') {
+      return false;
+    }
+    // Check HTTP status
+    const status = (err as { status?: number; httpStatus?: number }).status ??
+      (err as { httpStatus?: number }).httpStatus;
+    if (status !== undefined) {
+      // 408 (timeout) and 429 (rate limit) are retryable, other 4xx are not
+      if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 export async function retry<T>(
   fn: () => Promise<T>,
   maxRetries: number,
   baseDelayMs = 1000,
+  shouldRetry: (err: unknown) => boolean = isRetryableError,
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -234,10 +288,12 @@ export async function retry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      if (attempt < maxRetries) {
+      if (attempt < maxRetries && shouldRetry(err)) {
         const delay = baseDelayMs * Math.pow(2, attempt);
         const jitter = Math.random() * delay * 0.1;
         await sleep(delay + jitter);
+      } else if (!shouldRetry(err)) {
+        throw err; // Don't retry non-retryable errors
       }
     }
   }

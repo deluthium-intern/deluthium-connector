@@ -11,8 +11,16 @@
 
 x-common-env: &common-env
   DELUTHIUM_API_KEY: ${DELUTHIUM_API_KEY}
-  PRIVATE_KEY: ${PRIVATE_KEY}
+  # SECURITY: Private key is loaded from Docker secrets or a mounted file (CRIT-07).
+  # Set PRIVATE_KEY_FILE to a path inside the container (e.g. /run/secrets/private_key).
+  # The adapter should read process.env.PRIVATE_KEY_FILE and load the key from that file.
+  # Fallback to env var for development only -- NEVER use in production.
+  PRIVATE_KEY_FILE: ${PRIVATE_KEY_FILE:-/run/secrets/private_key}
   NODE_ENV: production
+
+secrets:
+  private_key:
+    file: ${PRIVATE_KEY_SECRET_FILE:-./.secrets/private_key}
 
 services:
   # ── UniswapX Filler ──────────────────────────────────────
@@ -26,6 +34,8 @@ services:
       <<: *common-env
       RPC_URL: ${ETH_RPC_URL:-https://eth.llamarpc.com}
       MIN_PROFIT_BPS: ${MIN_PROFIT_BPS:-25}
+    secrets:
+      - private_key
     restart: unless-stopped
 
   # ── Hashflow MM ──────────────────────────────────────────

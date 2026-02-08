@@ -11,6 +11,8 @@ import type { NonceInfo } from './types.js';
 export class NonceManager {
   private readonly nonces: Map<string, NonceInfo> = new Map();
   private currentEpoch: bigint = 0n;
+  /** Per-maker queues to serialize nonce allocation (prevents race conditions) */
+  private readonly nonceQueues: Map<string, Promise<bigint>> = new Map();
 
   // ── Nonce Operations ───────────────────────────────────────────────────
 
@@ -18,14 +20,22 @@ export class NonceManager {
    * Returns the next nonce for the given maker.
    * On first call for a maker the nonce is initialised to a random 40-bit value
    * (to avoid collisions across adapter restarts).
+   *
+   * This is the synchronous version -- safe when callers are sequential.
    */
   getNextNonce(makerAddress: string): bigint {
     const key = makerAddress.toLowerCase();
     const existing = this.nonces.get(key);
 
     if (existing) {
-      // Increment, wrapping at 40-bit max
-      const next = existing.nonce >= UINT_40_MAX ? 0n : existing.nonce + 1n;
+      // Increment, wrapping at 40-bit max with epoch advancement
+      let next: bigint;
+      if (existing.nonce >= UINT_40_MAX) {
+        this.currentEpoch += 1n;
+        next = 0n;
+      } else {
+        next = existing.nonce + 1n;
+      }
       const info: NonceInfo = {
         nonce: next,
         epoch: this.currentEpoch,
@@ -44,6 +54,25 @@ export class NonceManager {
     };
     this.nonces.set(key, info);
     return initial;
+  }
+
+  /**
+   * Async-safe nonce allocation that serializes concurrent requests per maker.
+   * Use this when building orders concurrently to prevent duplicate nonces (CRIT-05).
+   */
+  async getNextNonceSafe(makerAddress: string): Promise<bigint> {
+    const key = makerAddress.toLowerCase();
+    const previousQueue = this.nonceQueues.get(key) ?? Promise.resolve(0n);
+
+    const nextQueue = previousQueue.then(() => {
+      return this.getNextNonce(makerAddress);
+    }).catch(() => {
+      // If previous operation failed, still allocate a nonce
+      return this.getNextNonce(makerAddress);
+    });
+
+    this.nonceQueues.set(key, nextQueue);
+    return nextQueue;
   }
 
   /**

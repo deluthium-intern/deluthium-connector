@@ -1,5 +1,6 @@
 FROM node:20-slim AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pin pnpm version to match package.json packageManager field for reproducible builds (CI fix)
+RUN corepack enable && corepack prepare pnpm@10.29.1 --activate
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc turbo.json tsconfig.json ./
@@ -22,7 +23,7 @@ COPY packages/ packages/
 RUN pnpm build
 
 FROM node:20-slim AS production
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.29.1 --activate
 WORKDIR /app
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/.npmrc ./
 COPY --from=builder /app/node_modules ./node_modules

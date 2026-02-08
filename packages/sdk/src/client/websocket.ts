@@ -56,6 +56,8 @@ export class DeluthiumWSClient {
   private reconnectAttempts = 0;
   private intentionallyClosed = false;
   private messageCounter = 0;
+  /** Deduplicates concurrent connect() calls (HIGH-03) */
+  private connectPromise: Promise<void> | null = null;
 
   constructor(config: DeluthiumClientConfig) {
     if (!config.wsUrl) {
@@ -81,18 +83,36 @@ export class DeluthiumWSClient {
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
+    // Deduplicate concurrent connect() calls (HIGH-03)
+    if (this.connectPromise) return this.connectPromise;
+
     this.intentionallyClosed = false;
+
+    this.connectPromise = this._doConnect();
+    try {
+      await this.connectPromise;
+    } finally {
+      this.connectPromise = null;
+    }
+  }
+
+  private async _doConnect(): Promise<void> {
     const token = typeof this.options.auth === 'string'
       ? this.options.auth
       : await this.options.auth();
 
     return new Promise<void>((resolve, reject) => {
+      let settled = false;
+
       const timeoutId = setTimeout(() => {
-        this.ws?.close();
-        reject(new TimeoutError(
-          `WebSocket connection timed out after ${this.options.connectTimeoutMs}ms`,
-          this.options.connectTimeoutMs,
-        ));
+        if (!settled) {
+          settled = true;
+          this.ws?.close();
+          reject(new TimeoutError(
+            `WebSocket connection timed out after ${this.options.connectTimeoutMs}ms`,
+            this.options.connectTimeoutMs,
+          ));
+        }
       }, this.options.connectTimeoutMs);
 
       this.ws = new WebSocket(this.options.url, {
@@ -101,11 +121,14 @@ export class DeluthiumWSClient {
 
       this.ws.on('open', () => {
         clearTimeout(timeoutId);
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-        this.resubscribeAll();
-        this.emit('connected', undefined as never);
-        resolve();
+        if (!settled) {
+          settled = true;
+          this.reconnectAttempts = 0;
+          this.startHeartbeat();
+          this.resubscribeAll();
+          this.emit('connected', undefined as never);
+          resolve();
+        }
       });
 
       this.ws.on('message', (raw: WebSocket.RawData) => {
@@ -117,15 +140,25 @@ export class DeluthiumWSClient {
         this.stopHeartbeat();
         this.emit('disconnected', { code, reason: reason.toString() } as never);
 
+        // Reject the connect promise if not yet settled (HIGH-02)
+        if (!settled) {
+          settled = true;
+          reject(new WebSocketError(`WebSocket closed before open (code: ${code})`));
+        }
+
         if (!this.intentionallyClosed) {
-          this.attemptReconnect();
+          void this.attemptReconnect();
         }
       });
 
       this.ws.on('error', (err: Error) => {
         clearTimeout(timeoutId);
         this.emit('error', err as never);
-        // Don't reject here -- the close event will handle reconnection
+        // Reject the connect promise if not yet settled (HIGH-02)
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
       });
     });
   }
@@ -236,8 +269,11 @@ export class DeluthiumWSClient {
           // Unknown message type -- ignore
           break;
       }
-    } catch {
-      // Failed to parse message -- ignore malformed data
+    } catch (parseErr) {
+      // Emit parse errors instead of silently swallowing them
+      this.emit('error', new WebSocketError(
+        `Failed to parse WebSocket message: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+      ) as never);
     }
   }
 
@@ -246,9 +282,20 @@ export class DeluthiumWSClient {
     if (handlers) {
       for (const handler of handlers) {
         try {
-          void handler(data);
-        } catch {
-          // Don't let handler errors break the event loop
+          // Handle both sync and async handler errors
+          const result = handler(data);
+          if (result && typeof (result as Promise<void>).catch === 'function') {
+            (result as Promise<void>).catch((err) => {
+              if (event !== 'error') {
+                this.emit('error', (err instanceof Error ? err : new Error(String(err))) as never);
+              }
+            });
+          }
+        } catch (handlerErr) {
+          // Don't let sync handler errors break the event loop, but report them
+          if (event !== 'error') {
+            this.emit('error', (handlerErr instanceof Error ? handlerErr : new Error(String(handlerErr))) as never);
+          }
         }
       }
     }
@@ -258,7 +305,11 @@ export class DeluthiumWSClient {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected) {
-        this.send({ type: 'heartbeat' });
+        try {
+          this.send({ type: 'heartbeat' });
+        } catch {
+          // Socket closed between isConnected check and send -- ignore
+        }
       }
     }, this.options.heartbeatIntervalMs);
   }

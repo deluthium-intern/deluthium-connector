@@ -75,6 +75,15 @@ export class RFQWorkflowManager {
   /** Counter for generating unique IDs */
   private idCounter = 0;
 
+  /** Per-quote locks to prevent concurrent acceptance (TOCTOU protection) */
+  private readonly acceptLocks = new Map<string, Promise<OTCTradeRecord>>();
+
+  /** Maximum age (ms) for completed entries before cleanup */
+  private readonly maxEntryAgeMs: number;
+
+  /** Cleanup timer for TTL-based eviction */
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(config: {
     deluthiumConfig: DeluthiumClientConfig;
     signer: ISigner;
@@ -100,6 +109,53 @@ export class RFQWorkflowManager {
     this.counterparties = new Map();
     for (const [id, cp] of Object.entries(config.counterparties)) {
       this.counterparties.set(id, cp);
+    }
+
+    // TTL-based eviction: clean up completed entries every 5 minutes
+    this.maxEntryAgeMs = 30 * 60 * 1000; // 30 minutes
+    this.cleanupTimer = setInterval(() => this.evictStaleEntries(), 5 * 60 * 1000);
+  }
+
+  /**
+   * Remove stale entries from maps to prevent unbounded memory growth (MED-05).
+   */
+  private evictStaleEntries(): void {
+    const now = Date.now();
+    const terminalStatuses = new Set([
+      RFQStatus.Expired, RFQStatus.Rejected, RFQStatus.Cancelled, RFQStatus.Failed,
+    ]);
+
+    for (const [quoteId, quote] of this.activeQuotes) {
+      if (terminalStatuses.has(quote.status)) {
+        const createdAt = new Date(quote.createdAt).getTime();
+        if (now - createdAt > this.maxEntryAgeMs) {
+          this.activeQuotes.delete(quoteId);
+          this.requestToQuote.delete(quote.requestId);
+          this.activeRequests.delete(quote.requestId);
+        }
+      }
+    }
+
+    // Clean up accept locks for completed operations
+    for (const [quoteId, promise] of this.acceptLocks) {
+      // Check if the promise has settled by using a race with a resolved promise
+      void Promise.race([promise, Promise.resolve('__pending__')]).then((result) => {
+        if (result !== '__pending__') {
+          this.acceptLocks.delete(quoteId);
+        }
+      }).catch(() => {
+        this.acceptLocks.delete(quoteId);
+      });
+    }
+  }
+
+  /**
+   * Stop the cleanup timer (call when shutting down).
+   */
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
     }
   }
 
@@ -221,8 +277,31 @@ export class RFQWorkflowManager {
   /**
    * Accept a previously generated quote.
    * Triggers firm quote and on-chain execution (if applicable).
+   *
+   * Uses a per-quote lock to prevent TOCTOU race conditions (CRIT-01).
    */
   async acceptQuote(quoteId: string): Promise<OTCTradeRecord> {
+    // Check if there's already an in-flight acceptance for this quote
+    const existingLock = this.acceptLocks.get(quoteId);
+    if (existingLock) {
+      return existingLock;
+    }
+
+    // Create a lock and execute the acceptance
+    const acceptPromise = this._doAcceptQuote(quoteId);
+    this.acceptLocks.set(quoteId, acceptPromise);
+
+    try {
+      return await acceptPromise;
+    } finally {
+      this.acceptLocks.delete(quoteId);
+    }
+  }
+
+  /**
+   * Internal acceptance logic, called under the per-quote lock.
+   */
+  private async _doAcceptQuote(quoteId: string): Promise<OTCTradeRecord> {
     const quote = this.activeQuotes.get(quoteId);
     if (!quote) {
       throw new Error(`Quote not found: ${quoteId}`);
@@ -238,7 +317,7 @@ export class RFQWorkflowManager {
       throw new Error(`Quote ${quoteId} has expired`);
     }
 
-    // Transition to Accepted
+    // Transition to Accepted -- atomic relative to the lock
     quote.status = RFQStatus.Accepted;
 
     await this.auditTrail.logQuoteAccepted({

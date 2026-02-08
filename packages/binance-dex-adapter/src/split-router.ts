@@ -295,6 +295,8 @@ export class SplitRouter {
             }
           }
 
+          // MED-08: TODO: parse Transfer events from receipt for exact output amount
+          // Currently falls back to quoted amount_out
           totalActualOutput += BigInt(firmQuote.amount_out);
           executions.push({
             allocation, actualOutput: firmQuote.amount_out,
@@ -325,6 +327,7 @@ export class SplitRouter {
           );
 
           if (result.success) {
+            // MED-08: TODO: use actual output from swap receipt events
             totalActualOutput += BigInt(allocation.destAmount);
             executions.push({
               allocation, actualOutput: allocation.destAmount,

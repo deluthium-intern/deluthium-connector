@@ -49,14 +49,10 @@ export class DeluthiumRestClient {
     this.userAgent = config.userAgent ?? DEFAULT_USER_AGENT;
   }
 
-  // ─── Token resolution ────────────────────────────────────────────────
-
   private async resolveToken(): Promise<string> {
     if (typeof this.auth === 'string') return this.auth;
     return await this.auth();
   }
-
-  // ─── HTTP layer ──────────────────────────────────────────────────────
 
   private async request<T>(
     method: 'GET' | 'POST',
@@ -95,7 +91,6 @@ export class DeluthiumRestClient {
 
       const response = await fetch(url.toString(), init);
 
-      // Handle specific HTTP errors before parsing body
       if (response.status === 401 || response.status === 403) {
         throw new AuthenticationError();
       }
@@ -118,7 +113,6 @@ export class DeluthiumRestClient {
         );
       }
 
-      // Check business-logic success code
       const code = typeof json.code === 'string' ? parseInt(json.code, 10) : json.code;
       if (code !== API_SUCCESS_CODE) {
         throw new APIError(
@@ -141,90 +135,57 @@ export class DeluthiumRestClient {
     }
   }
 
-  /** HTTP request with automatic retry (exponential backoff). */
-  private async requestWithRetry<T>(
-    method: 'GET' | 'POST',
-    path: string,
-    body?: unknown,
-    queryParams?: Record<string, string | number>,
-  ): Promise<T> {
-    return retry(
-      () => this.request<T>(method, path, body, queryParams),
-      this.maxRetries,
-    );
+  /** GET with retry. */
+  private async retryGet<T>(path: string, queryParams?: Record<string, string | number>): Promise<T> {
+    return retry(() => this.request<T>('GET', path, undefined, queryParams), this.maxRetries);
   }
 
-  // ─── Public API Methods ──────────────────────────────────────────────
+  /** POST without retry -- default for state-mutating endpoints (HIGH-01). */
+  private async post<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
 
-  /**
-   * Fetch all listing pairs for a chain.
-   *
-   * @param chainId - Override default chain ID
-   */
+  /** POST with retry -- for idempotent POST endpoints only. */
+  private async retryPost<T>(path: string, body?: unknown): Promise<T> {
+    return retry(() => this.request<T>('POST', path, body), this.maxRetries);
+  }
+
+  // ---- Public API Methods -----------------------------------------------
+
   async getPairs(chainId?: number): Promise<TradingPair[]> {
-    return this.requestWithRetry<TradingPair[]>('GET', '/api/v1/listing-pairs', undefined, {
+    return this.retryGet<TradingPair[]>('/api/v1/listing-pairs', {
       chain_id: chainId ?? this.chainId,
     });
   }
 
-  /**
-   * Fetch all listing tokens for a chain.
-   *
-   * @param chainId - Override default chain ID
-   */
   async getTokens(chainId?: number): Promise<Token[]> {
-    return this.requestWithRetry<Token[]>('GET', '/api/v1/listing-tokens', undefined, {
+    return this.retryGet<Token[]>('/api/v1/listing-tokens', {
       chain_id: chainId ?? this.chainId,
     });
   }
 
-  /**
-   * Request an indicative (non-binding) quote.
-   * Use this for price discovery before committing to a firm quote.
-   */
+  /** Indicative quotes are idempotent -- safe to retry. */
   async getIndicativeQuote(request: IndicativeQuoteRequest): Promise<IndicativeQuoteResponse> {
     this.validateQuoteRequest(request);
-    return this.requestWithRetry<IndicativeQuoteResponse>(
-      'POST',
-      '/api/v1/indicative-quote',
-      request,
-    );
+    return this.retryPost<IndicativeQuoteResponse>('/api/v1/indicative-quote', request);
   }
 
-  /**
-   * Request a firm (binding) quote with on-chain calldata.
-   * The returned calldata can be used to execute the swap.
-   */
+  /** Firm quotes are state-mutating -- NOT retried (HIGH-01). */
   async getFirmQuote(request: FirmQuoteRequest): Promise<FirmQuoteResponse> {
     this.validateFirmQuoteRequest(request);
-    return this.requestWithRetry<FirmQuoteResponse>('POST', '/v1/quote/firm', request);
+    return this.post<FirmQuoteResponse>('/api/v1/quote/firm', request);
   }
 
-  /**
-   * Fetch market pair data (OHLCV compatible).
-   */
-  async getMarketPair(params: {
-    base: string;
-    quote: string;
-    chainId?: number;
-  }): Promise<unknown> {
-    return this.requestWithRetry('GET', '/v1/market/pair', undefined, {
+  async getMarketPair(params: { base: string; quote: string; chainId?: number }): Promise<unknown> {
+    return this.retryGet('/api/v1/market/pair', {
       base: params.base,
       quote: params.quote,
       chain_id: params.chainId ?? this.chainId,
     });
   }
 
-  /**
-   * Fetch kline (candlestick) data.
-   */
-  async getKlines(params: {
-    pair: string;
-    interval: string;
-    limit?: number;
-    chainId?: number;
-  }): Promise<unknown> {
-    return this.requestWithRetry('GET', '/v1/market/klines', undefined, {
+  async getKlines(params: { pair: string; interval: string; limit?: number; chainId?: number }): Promise<unknown> {
+    return this.retryGet('/api/v1/market/klines', {
       pair: params.pair,
       interval: params.interval,
       limit: params.limit ?? 100,
@@ -232,7 +193,7 @@ export class DeluthiumRestClient {
     });
   }
 
-  // ─── Validation ──────────────────────────────────────────────────────
+  // ---- Validation -------------------------------------------------------
 
   private validateQuoteRequest(req: IndicativeQuoteRequest): void {
     if (!req.token_in) throw new ValidationError('token_in is required', 'token_in');
@@ -245,8 +206,7 @@ export class DeluthiumRestClient {
 
   private validateFirmQuoteRequest(req: FirmQuoteRequest): void {
     this.validateQuoteRequest(req);
-    if (!req.from_address)
-      throw new ValidationError('from_address is required', 'from_address');
+    if (!req.from_address) throw new ValidationError('from_address is required', 'from_address');
     if (!req.to_address) throw new ValidationError('to_address is required', 'to_address');
     if (req.slippage == null || req.slippage < 0)
       throw new ValidationError('slippage must be a non-negative number', 'slippage');

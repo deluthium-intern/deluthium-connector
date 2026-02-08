@@ -265,6 +265,9 @@ export class UniswapXAdapter {
       this.emit('error', error);
     }
 
+    // Prune seen orders to prevent memory leak (HIGH-06)
+    this.pruneSeenOrders();
+
     // Schedule next poll
     if (this.running) {
       this.pollTimer = setTimeout(() => void this.poll(), this.pollIntervalMs);
@@ -275,11 +278,11 @@ export class UniswapXAdapter {
     const { order } = evaluation;
 
     try {
-      this.emit('fillSubmitted', order.orderHash, '0x' as HexString);
-
       const result = await this.filler.getReactorClient().execute(order);
 
       if (result.success) {
+        // Emit fillSubmitted with the real txHash after the transaction is broadcast (HIGH-07)
+        this.emit('fillSubmitted', order.orderHash, (result.txHash ?? '0x') as HexString);
         this.emit('fillConfirmed', result);
       } else {
         this.emit('fillFailed', order.orderHash, new Error(result.error ?? 'Fill failed'));

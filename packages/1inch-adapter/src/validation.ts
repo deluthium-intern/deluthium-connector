@@ -70,20 +70,30 @@ export function validateDeluthiumQuote(quote: DeluthiumQuote): ValidationResult 
     });
   }
 
-  if (!quote.amountIn || BigInt(quote.amountIn) <= 0n) {
-    errors.push({
-      field: 'amountIn',
-      message: 'amountIn must be a positive value',
-      value: quote.amountIn,
-    });
+  if (!quote.amountIn) {
+    errors.push({ field: 'amountIn', message: 'amountIn is required', value: quote.amountIn });
+  } else {
+    try {
+      if (BigInt(quote.amountIn) <= 0n) {
+        errors.push({ field: 'amountIn', message: 'amountIn must be a positive value', value: quote.amountIn });
+      }
+    } catch {
+      // MED-13: Guard BigInt() calls -- collect error instead of crashing
+      errors.push({ field: 'amountIn', message: 'amountIn must be a valid numeric string', value: quote.amountIn });
+    }
   }
 
-  if (!quote.amountOut || BigInt(quote.amountOut) <= 0n) {
-    errors.push({
-      field: 'amountOut',
-      message: 'amountOut must be a positive value',
-      value: quote.amountOut,
-    });
+  if (!quote.amountOut) {
+    errors.push({ field: 'amountOut', message: 'amountOut is required', value: quote.amountOut });
+  } else {
+    try {
+      if (BigInt(quote.amountOut) <= 0n) {
+        errors.push({ field: 'amountOut', message: 'amountOut must be a positive value', value: quote.amountOut });
+      }
+    } catch {
+      // MED-13: Guard BigInt() calls -- collect error instead of crashing
+      errors.push({ field: 'amountOut', message: 'amountOut must be a valid numeric string', value: quote.amountOut });
+    }
   }
 
   if (!isValidAddress(quote.to)) {

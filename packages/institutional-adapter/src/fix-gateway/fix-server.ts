@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import type { FIXServerConfig } from '../types.js';
 import { FIXSessionManager } from './session-manager.js';
-import { parseFIXMessage } from './fix-messages.js';
+import { parseFIXMessage, validateChecksum } from './fix-messages.js';
 
 // ============================================================================
 // FIX Server
@@ -53,7 +53,8 @@ export class FIXServer extends EventEmitter {
           };
           this.server = tls.createServer(tlsOptions, (socket) => this.handleConnection(socket));
         } else {
-          // Plain TCP server
+          // Plain TCP server -- warn about security implications (CRIT-02)
+          this.emit('warning', 'FIX server starting WITHOUT TLS. Credentials will be transmitted in plaintext. Configure tlsKeyPath and tlsCertPath for production use.');
           this.server = net.createServer((socket) => this.handleConnection(socket));
         }
 
@@ -136,15 +137,32 @@ export class FIXServer extends EventEmitter {
       return;
     }
 
-    const connId = `${socket.remoteAddress}:${socket.remotePort}`;
+    // IP allowlisting enforcement (CRIT-02)
+    const remoteAddr = socket.remoteAddress;
+    if (this.config.allowedIPs && this.config.allowedIPs.length > 0 && remoteAddr) {
+      const normalizedRemote = remoteAddr.replace(/^::ffff:/, ''); // Strip IPv4-mapped prefix
+      if (!this.config.allowedIPs.includes(normalizedRemote)) {
+        this.emit('warning', `FIX connection rejected from unauthorized IP: ${normalizedRemote}`);
+        socket.end();
+        return;
+      }
+    }
+
+    const connId = `${remoteAddr}:${socket.remotePort}`;
     const connection = new FIXConnection(connId, socket);
 
     this.connections.set(connId, connection);
-    this.emit('connection', connId, socket.remoteAddress);
+    this.emit('connection', connId, remoteAddr);
 
     // Forward received messages to session manager
     connection.on('message', (raw: string) => {
       try {
+        // Validate FIX checksum integrity before processing (MED-07)
+        if (!validateChecksum(raw)) {
+          this.emit('warning', `FIX message from ${connId} failed checksum validation -- discarding`);
+          return;
+        }
+
         this.sessionManager.processIncomingMessage(raw);
 
         // Associate connection with session on logon

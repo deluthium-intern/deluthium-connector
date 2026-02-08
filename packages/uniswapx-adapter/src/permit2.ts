@@ -133,11 +133,23 @@ export class Permit2Client {
    * @param token - ERC-20 token address
    * @returns Whether Permit2 has sufficient ERC-20 approval
    */
-  async hasERC20Approval(owner: Address, token: Address): Promise<boolean> {
+  /**
+   * Check if the owner has approved the Permit2 contract to spend a token.
+   *
+   * @param owner - Token owner address
+   * @param token - ERC-20 token address
+   * @param requiredAmount - Minimum allowance required (in wei). Defaults to checking for any non-zero approval.
+   * @returns Whether Permit2 has sufficient ERC-20 approval
+   */
+  async hasERC20Approval(owner: Address, token: Address, requiredAmount?: bigint): Promise<boolean> {
     const erc20 = new Contract(token, ERC20_ABI, this.provider);
     const allowance = await erc20.allowance(owner, PERMIT2_ADDRESS) as bigint;
-    // Consider "approved" if allowance > 1e18 (1 token as minimum threshold)
-    return allowance > 10n ** 18n;
+    // If a specific amount is required, compare against it (HIGH-04: token-decimal-agnostic)
+    if (requiredAmount !== undefined) {
+      return allowance >= requiredAmount;
+    }
+    // Default: consider "approved" if allowance is non-zero
+    return allowance > 0n;
   }
 
   /**

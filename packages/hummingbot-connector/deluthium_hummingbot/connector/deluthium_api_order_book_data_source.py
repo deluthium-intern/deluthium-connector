@@ -56,7 +56,8 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 POLL_INTERVAL: float = 30.0  # seconds
-SYNTHETIC_SPREAD_BPS: Decimal = Decimal("0.001")  # 0.1 %
+# Synthetic spread as a ratio (0.001 = 0.1% = 10 bps). Named _RATIO for clarity (L-11).
+SYNTHETIC_SPREAD_RATIO: Decimal = Decimal("0.001")  # 0.1 % (10 bps)
 
 
 class DeluthiumAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -133,7 +134,7 @@ class DeluthiumAPIOrderBookDataSource(OrderBookTrackerDataSource):
             return {"bids": [], "asks": [], "trading_pair": trading_pair}
 
         mid_d = Decimal(str(mid))
-        half_spread = mid_d * SYNTHETIC_SPREAD_BPS / 2
+        half_spread = mid_d * SYNTHETIC_SPREAD_RATIO / 2
         best_bid = float(mid_d - half_spread)
         best_ask = float(mid_d + half_spread)
 

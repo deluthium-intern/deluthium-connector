@@ -99,7 +99,7 @@ const chainRegistry = new Map<number, ChainConfig>();
  * Get configuration for a specific chain.
  * @throws ChainError if chain is not registered
  */
-export function getChainConfig(chainId: number): ChainConfig {
+export function getChainConfig(chainId: number): Readonly<ChainConfig> {
   const config = chainRegistry.get(chainId);
   if (!config) {
     throw new ChainError(
@@ -107,7 +107,8 @@ export function getChainConfig(chainId: number): ChainConfig {
       chainId,
     );
   }
-  return config;
+  // Return a frozen copy to prevent accidental mutation of the registry (MED-12)
+  return Object.freeze({ ...config });
 }
 
 /**

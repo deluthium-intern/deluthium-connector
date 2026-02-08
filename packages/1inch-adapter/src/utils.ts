@@ -140,7 +140,9 @@ export async function retry<T>(
       lastError = err;
       if (attempt < maxRetries) {
         const delay = baseDelayMs * 2 ** attempt;
-        await sleep(delay);
+        // Add jitter to avoid thundering herd (MED-06 equivalent)
+        const jitter = Math.random() * delay * 0.2;
+        await sleep(delay + jitter);
       }
     }
   }
@@ -150,12 +152,11 @@ export async function retry<T>(
 // ── Object Utilities ─────────────────────────────────────────────────────────
 
 /**
- * Deep-clones a JSON-serialisable value.
+ * Deep-clones a value, preserving BigInt fields.
+ * Uses structuredClone which natively supports BigInt.
  */
 export function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value, (_key, v) =>
-    typeof v === 'bigint' ? v.toString() : v,
-  )) as T;
+  return structuredClone(value);
 }
 
 // ── Signature Utilities ──────────────────────────────────────────────────────
@@ -183,10 +184,14 @@ export function compactSignature(signature: string): string {
   const s = raw.slice(64, 128);
   const v = parseInt(raw.slice(128, 130), 16);
 
-  // EIP-2098: yParity is encoded in the highest bit of s
-  const yParity = v - 27; // 0 or 1
-  if (yParity !== 0 && yParity !== 1) {
-    throw new Error(`Invalid v value: ${v}`);
+  // Normalize v: some signers return 0/1 (EIP-155), others return 27/28
+  let yParity: number;
+  if (v === 0 || v === 1) {
+    yParity = v;
+  } else if (v === 27 || v === 28) {
+    yParity = v - 27;
+  } else {
+    throw new Error(`Invalid v value: ${v}. Expected 0, 1, 27, or 28.`);
   }
 
   // Set the high bit of s if yParity === 1

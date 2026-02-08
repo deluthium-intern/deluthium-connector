@@ -81,6 +81,9 @@ class DeluthiumExchange(ExchangePyBase):
         # Chain-qualified pair cache:  "56:BNB-USDT" -> pair metadata
         self._pair_cache: Dict[str, Dict[str, Any]] = {}
 
+        # Reusable aiohttp session (HIGH-10: avoid creating per-request sessions)
+        self._session: Optional[aiohttp.ClientSession] = None
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -92,6 +95,19 @@ class DeluthiumExchange(ExchangePyBase):
     @property
     def trading_pairs(self) -> List[str]:
         return self._trading_pairs
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create a reusable aiohttp session (HIGH-10)."""
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=30)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
+
+    async def close(self) -> None:
+        """Close the reusable aiohttp session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     # ------------------------------------------------------------------
     # Pair cache (chain-qualified)
@@ -108,15 +124,15 @@ class DeluthiumExchange(ExchangePyBase):
             "Content-Type": "application/json",
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as resp:
-                    resp.raise_for_status()
-                    data = await resp.json()
-                    for pair_info in data.get("pairs", []):
-                        symbol = pair_info.get("symbol", "")
-                        hb_symbol = convert_symbol_to_hummingbot(symbol)
-                        key = self._pair_cache_key(hb_symbol)
-                        self._pair_cache[key] = pair_info
+            session = await self._get_session()
+            async with session.get(url, headers=headers) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                for pair_info in data.get("pairs", []):
+                    symbol = pair_info.get("symbol", "")
+                    hb_symbol = convert_symbol_to_hummingbot(symbol)
+                    key = self._pair_cache_key(hb_symbol)
+                    self._pair_cache[key] = pair_info
         except Exception:
             logger.exception("Failed to populate Deluthium pair cache")
 
@@ -161,18 +177,18 @@ class DeluthiumExchange(ExchangePyBase):
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    data = await resp.json()
-                    self._handle_response_errors(data)
-                    logger.info(
-                        "Firm quote received for %s %s %s – tx hash: %s",
-                        "BUY" if is_buy else "SELL",
-                        amount,
-                        trading_pair,
-                        data.get("txHash", "N/A"),
-                    )
-                    return data
+            session = await self._get_session()
+            async with session.post(url, json=payload, headers=headers) as resp:
+                data = await resp.json()
+                self._handle_response_errors(data)
+                logger.info(
+                    "Firm quote received for %s %s %s – tx hash: %s",
+                    "BUY" if is_buy else "SELL",
+                    amount,
+                    trading_pair,
+                    data.get("txHash", "N/A"),
+                )
+                return data
         except aiohttp.ClientError:
             logger.exception("HTTP error placing order on Deluthium")
             raise
@@ -225,10 +241,15 @@ class DeluthiumExchange(ExchangePyBase):
                 f"Deluthium API error [{error_code}]: {description}"
             )
 
-        # Numeric error codes
+        # Numeric error codes (MED-11: safely parse non-integer codes)
         numeric_code = data.get("code")
-        if numeric_code and int(numeric_code) in NUMERIC_ERROR_CODES:
-            description = NUMERIC_ERROR_CODES[int(numeric_code)]
-            raise RuntimeError(
-                f"Deluthium API error [code {numeric_code}]: {description}"
-            )
+        if numeric_code is not None:
+            try:
+                code_int = int(numeric_code)
+                if code_int in NUMERIC_ERROR_CODES:
+                    description = NUMERIC_ERROR_CODES[code_int]
+                    raise RuntimeError(
+                        f"Deluthium API error [code {numeric_code}]: {description}"
+                    )
+            except (ValueError, TypeError):
+                pass  # Non-numeric code -- not a known error code

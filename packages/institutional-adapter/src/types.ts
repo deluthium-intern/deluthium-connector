@@ -285,6 +285,8 @@ export interface FIXServerConfig {
   maxSessions?: number;
   /** Session configurations by counterparty CompID */
   sessions: Record<string, FIXSessionConfig>;
+  /** IP allowlist -- only connections from these IPs will be accepted (CRIT-02) */
+  allowedIPs?: string[];
 }
 
 // ============================================================================

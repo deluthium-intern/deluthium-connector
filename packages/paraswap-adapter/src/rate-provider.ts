@@ -467,6 +467,14 @@ export class RateProvider {
    * @param request - Incoming rate request with the actual amount
    * @returns Scaled rate response
    */
+  /**
+   * Scale a cached rate response to match the requested `srcAmount`.
+   *
+   * WARNING (MED-09): This uses linear scaling, which does NOT account for
+   * AMM price impact or RFQ amount-dependent pricing. For large orders
+   * relative to the cached amount, the scaled rate may be significantly
+   * more optimistic than the actual rate. Use fresh quotes for accuracy.
+   */
   private scaleRate(cached: RateResponse, request: RateRequest): RateResponse {
     const cachedSrc = BigInt(cached.srcAmount);
     const cachedDest = BigInt(cached.destAmount);
@@ -474,6 +482,14 @@ export class RateProvider {
 
     // Avoid division by zero
     if (cachedSrc === 0n) return { ...cached, srcAmount: request.srcAmount, destAmount: '0' };
+
+    // Warn if scaling factor is large (>10x the cached amount)
+    if (requestedSrc > cachedSrc * 10n) {
+      this.emit('rate:error', {
+        error: `WARNING: Linear rate scaling applied for ${requestedSrc.toString()} (${(requestedSrc / cachedSrc).toString()}x cached amount). Actual rate may differ significantly for ${cached.srcToken}/${cached.destToken}.`,
+        timestamp: Date.now(),
+      });
+    }
 
     // Linear scaling: destAmount = cachedDest × requestedSrc / cachedSrc
     const scaledDest = (cachedDest * requestedSrc) / cachedSrc;

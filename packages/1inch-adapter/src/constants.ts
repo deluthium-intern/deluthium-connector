@@ -103,6 +103,13 @@ export function getChainConfig(chainId: number): OneInchChainConfig {
   if (!config) {
     throw new Error(`Unsupported chain: ${chainId}. Supported chains: ${Object.keys(CHAIN_CONFIGS).join(', ')}`);
   }
+  // Guard against zero-address RFQ managers (CRIT-06)
+  if (config.deluthiumRfqManager === ZERO_ADDRESS) {
+    throw new Error(
+      `Deluthium RFQ Manager is not yet deployed on ${config.name} (chain ${chainId}). ` +
+      `Cannot build orders targeting the zero address.`,
+    );
+  }
   return config;
 }
 
