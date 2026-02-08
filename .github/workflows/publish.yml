@@ -1,0 +1,121 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-npm:
+    name: Publish npm packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Set package versions
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          for pkg in packages/*/package.json; do
+            if [ -f "$pkg" ] && grep -q '"@deluthium/' "$pkg"; then
+              pnpm --filter "$(dirname $pkg)" exec npm version "$VERSION" --no-git-tag-version --allow-same-version 2>/dev/null || true
+            fi
+          done
+      - name: Publish @deluthium/sdk first
+        run: pnpm --filter @deluthium/sdk publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish all adapter packages
+        run: |
+          for pkg in ccxt-adapter 0x-adapter 1inch-adapter uniswapx-adapter hashflow-adapter paraswap-adapter dydx-adapter binance-dex-adapter institutional-adapter cli; do
+            echo "Publishing @deluthium/$pkg..."
+            pnpm --filter "@deluthium/$pkg" publish --access public --no-git-checks || echo "Skipped $pkg"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pip:
+    name: Publish Python package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install build twine
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Update version
+        working-directory: packages/hummingbot-connector
+        run: sed -i "s/version = \".*\"/version = \"${{ steps.version.outputs.VERSION }}\"/" pyproject.toml
+      - name: Build
+        working-directory: packages/hummingbot-connector
+        run: python -m build
+      - name: Publish to PyPI
+        working-directory: packages/hummingbot-connector
+        run: twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+
+  docker:
+    name: Build & Push Docker images
+    runs-on: ubuntu-latest
+    needs: publish-npm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Build and push base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.base
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/base:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.repository }}/base:latest
+      - name: Build and push adapter images
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          REPO="ghcr.io/${{ github.repository }}"
+          for adapter in uniswapx-adapter hashflow-adapter paraswap-adapter dydx-adapter binance-dex-adapter institutional-adapter; do
+            docker build -f docker/Dockerfile.adapter --build-arg ADAPTER=$adapter -t "$REPO/$adapter:$VERSION" -t "$REPO/$adapter:latest" .
+            docker push "$REPO/$adapter:$VERSION"
+            docker push "$REPO/$adapter:latest"
+          done
+      - name: Build and push Hummingbot image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.hummingbot
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/hummingbot:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.repository }}/hummingbot:latest
