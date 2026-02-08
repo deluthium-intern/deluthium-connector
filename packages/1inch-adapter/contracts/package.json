@@ -1,0 +1,16 @@
+{
+  "name": "@deluthium/1inch-adapter-contracts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:bsc": "hardhat run deploy/DeluthiumOracle.deploy.js --network bsc",
+    "deploy:base": "hardhat run deploy/DeluthiumOracle.deploy.js --network base"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "hardhat": "^2.19.0"
+  }
+}

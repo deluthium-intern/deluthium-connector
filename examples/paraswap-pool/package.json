@@ -1,0 +1,18 @@
+{
+  "name": "deluthium-paraswap-pool-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx index.ts"
+  },
+  "dependencies": {
+    "@deluthium/sdk": "workspace:*",
+    "@deluthium/paraswap-adapter": "workspace:*",
+    "ethers": "^6.13.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,103 @@
+# ──────────────────────────────────────────────────────────────
+# Deluthium Connector - Docker Compose
+#
+# Run individual adapters or the full suite.
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up uniswapx-filler
+#   docker compose -f docker/docker-compose.yml up institutional
+#   docker compose -f docker/docker-compose.yml up --build
+# ──────────────────────────────────────────────────────────────
+
+x-common-env: &common-env
+  DELUTHIUM_API_KEY: ${DELUTHIUM_API_KEY}
+  PRIVATE_KEY: ${PRIVATE_KEY}
+  NODE_ENV: production
+
+services:
+  # ── UniswapX Filler ──────────────────────────────────────
+  uniswapx-filler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: uniswapx-adapter
+    environment:
+      <<: *common-env
+      RPC_URL: ${ETH_RPC_URL:-https://eth.llamarpc.com}
+      MIN_PROFIT_BPS: ${MIN_PROFIT_BPS:-25}
+    restart: unless-stopped
+
+  # ── Hashflow MM ──────────────────────────────────────────
+  hashflow-mm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: hashflow-adapter
+    environment:
+      <<: *common-env
+      HASHFLOW_MM_NAME: ${HASHFLOW_MM_NAME:-deluthium-mm}
+    restart: unless-stopped
+
+  # ── Paraswap Pool ────────────────────────────────────────
+  paraswap-pool:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: paraswap-adapter
+    environment:
+      <<: *common-env
+      POOL_ADAPTER_ADDRESS: ${POOL_ADAPTER_ADDRESS}
+    restart: unless-stopped
+
+  # ── dYdX Bridge ──────────────────────────────────────────
+  dydx-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: dydx-adapter
+    environment:
+      <<: *common-env
+      DYDX_NETWORK: ${DYDX_NETWORK:-mainnet}
+      DYDX_ADDRESS: ${DYDX_ADDRESS}
+    restart: unless-stopped
+
+  # ── PancakeSwap Router ───────────────────────────────────
+  pancakeswap-router:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: binance-dex-adapter
+    environment:
+      <<: *common-env
+      BSC_RPC_URL: ${BSC_RPC_URL:-https://bsc-dataseed1.binance.org}
+    restart: unless-stopped
+
+  # ── Institutional (FIX + OTC API) ───────────────────────
+  institutional:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.adapter
+      args:
+        ADAPTER: institutional-adapter
+    environment:
+      <<: *common-env
+      FIX_PORT: 9878
+      OTC_PORT: 3000
+    ports:
+      - "${FIX_PORT:-9878}:9878"
+      - "${OTC_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  # ── Hummingbot Connector ─────────────────────────────────
+  hummingbot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hummingbot
+    environment:
+      DELUTHIUM_API_KEY: ${DELUTHIUM_API_KEY}
+    restart: unless-stopped

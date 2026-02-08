@@ -1,0 +1,58 @@
+{
+  "name": "@deluthium/institutional-adapter",
+  "version": "0.1.0",
+  "description": "Institutional MM adapter for Deluthium -- FIX protocol gateway, unified OTC API, aggregator bridge for Wintermute/GSR/Jump",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deluthium-intern/deluthium-connector.git",
+    "directory": "packages/institutional-adapter"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "node --import tsx --test 'tests/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist .turbo",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deluthium/sdk": "workspace:*",
+    "@deluthium/0x-adapter": "workspace:*",
+    "@deluthium/1inch-adapter": "workspace:*",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "deluthium",
+    "institutional",
+    "fix-protocol",
+    "otc",
+    "rfq",
+    "market-maker",
+    "wintermute",
+    "gsr",
+    "jump-trading",
+    "defi"
+  ]
+}

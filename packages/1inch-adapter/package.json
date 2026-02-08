@@ -1,0 +1,54 @@
+{
+  "name": "@deluthium/1inch-adapter",
+  "version": "0.1.0",
+  "description": "Deluthium to 1inch Limit Order Protocol V4 adapter -- order building, MakerTraits encoding, EIP-712 signing, on-chain oracle",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deluthium-intern/deluthium-connector.git",
+    "directory": "packages/1inch-adapter"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "contracts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "node --import tsx --test 'tests/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist .turbo",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deluthium/sdk": "workspace:*",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "deluthium",
+    "1inch",
+    "limit-order",
+    "rfq",
+    "market-maker",
+    "defi",
+    "oracle"
+  ]
+}

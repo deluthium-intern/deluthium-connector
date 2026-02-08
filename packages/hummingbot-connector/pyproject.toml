@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deluthium-hummingbot"
+version = "0.1.0"
+description = "Deluthium DEX aggregator connector for Hummingbot – auto-injects via pip install + symlink"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Deluthium", email = "dev@deluthium.ai" },
+]
+dependencies = [
+    "aiohttp>=3.9.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+deluthium-hummingbot = "deluthium_hummingbot.scripts.install:main"
+
+[tool.setuptools.packages.find]
+include = ["deluthium_hummingbot*"]

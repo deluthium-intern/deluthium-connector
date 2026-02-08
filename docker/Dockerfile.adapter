@@ -1,0 +1,27 @@
+ARG ADAPTER=sdk
+FROM node:20-slim AS base
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc turbo.json tsconfig.json ./
+COPY packages/sdk/package.json packages/sdk/package.json
+ARG ADAPTER
+COPY packages/${ADAPTER}/package.json packages/${ADAPTER}/package.json
+COPY packages/0x-adapter/package.json packages/0x-adapter/package.json
+COPY packages/1inch-adapter/package.json packages/1inch-adapter/package.json
+RUN pnpm install --frozen-lockfile
+COPY packages/sdk/ packages/sdk/
+COPY packages/${ADAPTER}/ packages/${ADAPTER}/
+COPY packages/0x-adapter/ packages/0x-adapter/
+COPY packages/1inch-adapter/ packages/1inch-adapter/
+RUN pnpm --filter @deluthium/sdk build && pnpm --filter @deluthium/0x-adapter build 2>/dev/null; pnpm --filter @deluthium/1inch-adapter build 2>/dev/null; cd packages/${ADAPTER} && pnpm build
+FROM node:20-slim AS production
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+ARG ADAPTER
+COPY --from=base /app/package.json /app/pnpm-workspace.yaml /app/.npmrc ./
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/packages/sdk ./packages/sdk
+COPY --from=base /app/packages/${ADAPTER} ./packages/${ADAPTER}
+ENV NODE_ENV=production
+WORKDIR /app/packages/${ADAPTER}
+CMD ["node", "dist/index.js"]

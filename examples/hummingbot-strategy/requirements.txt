@@ -1,0 +1,1 @@
+deluthium-hummingbot>=0.1.0

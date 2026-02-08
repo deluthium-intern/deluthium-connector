@@ -1,0 +1,31 @@
+FROM node:20-slim AS base
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc turbo.json tsconfig.json ./
+COPY packages/sdk/package.json packages/sdk/package.json
+COPY packages/ccxt-adapter/package.json packages/ccxt-adapter/package.json
+COPY packages/0x-adapter/package.json packages/0x-adapter/package.json
+COPY packages/1inch-adapter/package.json packages/1inch-adapter/package.json
+COPY packages/uniswapx-adapter/package.json packages/uniswapx-adapter/package.json
+COPY packages/hashflow-adapter/package.json packages/hashflow-adapter/package.json
+COPY packages/paraswap-adapter/package.json packages/paraswap-adapter/package.json
+COPY packages/dydx-adapter/package.json packages/dydx-adapter/package.json
+COPY packages/binance-dex-adapter/package.json packages/binance-dex-adapter/package.json
+COPY packages/institutional-adapter/package.json packages/institutional-adapter/package.json
+COPY packages/cli/package.json packages/cli/package.json
+
+RUN pnpm install --frozen-lockfile
+
+FROM base AS builder
+COPY packages/ packages/
+RUN pnpm build
+
+FROM node:20-slim AS production
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/.npmrc ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+ENV NODE_ENV=production
+CMD ["node", "--help"]
